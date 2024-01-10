@@ -2,9 +2,23 @@
 ###  This script is used for the following steps
 ###  1. Data loading (.DCC files, PKC files and sample annotation)
 ##   2. Quality Control
+##      - SegmentQC
+##      - ProbeQC
+##      - Limit of Quantification QC (LOQ)
 ##   3. Normalization
+##      - Q3 Normalization
+##      - Background Normalization
 ###############################################################################
 
+# Which QC metrics would you like to use?
+SegmentQC = T
+ProbeQC = T
+LOQ = F
+
+
+# Which normalization would you like to use?
+Q3Norm = T
+backgroundNorm = F
 
 ###############################################################################
 ### Step 1: 
@@ -34,7 +48,7 @@ DCCFiles <- dir(DCC, pattern = ".dcc$",
 PKCFiles <- dir(PKC, pattern = ".pkc$", full.names = TRUE, recursive = TRUE)
 
 
-# Sample annotation
+# Sample annotation (Alternatively you could provide a direct path)
 SampleAnnotationFile <- dir(SampleAnnotation, pattern = ".xlsx$",
       full.names = TRUE, recursive = TRUE)
 
@@ -47,8 +61,7 @@ demoData <- readNanoStringGeoMxSet(dccFiles = DCCFiles,
                                    pkcFiles = PKCFiles,
                                    phenoDataFile = SampleAnnotationFile,
                                    phenoDataSheet = "Sheet1",
-                                   phenoDataDccColName = "Sample_ID",
-                                   protocolDataColNames = c("SegmentLabel")
+                                   phenoDataDccColName = "Sample_ID"
 )
 
 
@@ -72,159 +85,170 @@ demoData <- shiftCountsOne(demoData, useDALogic = TRUE)
 ############################################################
 ## Segment QC
 ############################################################
-
-# Set the QC parameters that we wish to use. These can be edited.  
-QC_params <-
-  list(minSegmentReads = 1000, # Minimum number of reads (1000)
-       percentTrimmed = 80,    # Minimum % of reads trimmed (80%)
-       percentStitched = 80,   # Minimum % of reads stitched (80%)
-       percentAligned = 80,    # Minimum % of reads aligned (80%)
-       percentSaturation = 50, # Minimum sequencing saturation (50%)
-       minNegativeCount = 1,   # Minimum negative control counts (1)
-       maxNTCCount = 9000,     # Maximum counts observed in NTC well (9000)
-       minNuclei = 20,         # Minimum # of nuclei estimated (20)
-       minArea = 1000)         # Minimum segment area (1000)
-
-
-# Include the QC parameters in the nanostring object 
-demoData <- setSegmentQCFlags(demoData, 
-                    qcCutoffs = QC_params)   
-
-##############################################
-###  Create QC summary table based on
-###  these flags.
-##############################################
-
-QCResults <- protocolData(demoData)[["QCFlags"]]
-flag_columns <- colnames(QCResults)
-
-
-QC_Summary <- data.frame(Pass = colSums(!QCResults[, flag_columns]),
-                         Warning = colSums(QCResults[, flag_columns]))
-QCResults$QCStatus <- apply(QCResults, 1L, function(x) {
-  ifelse(sum(x) == 0L, "PASS", "WARNING")
-})
-
-
-# Display summary of the results
-QC_Summary["TOTAL FLAGS", ] <-
-  c(sum(QCResults[, "QCStatus"] == "PASS"),
-    sum(QCResults[, "QCStatus"] == "WARNING"))
-
-
-################################################
-### Visualize segment QC
-################################################
-
-col_by <- "SegmentLabel"
-
-# Trimmed % 
-QC_histogram(sData(demoData), "Trimmed (%)", col_by, 80)
-
-# Stitched %
-QC_histogram(sData(demoData), "Stitched (%)", col_by, 80)
-
-# Aligned %
-QC_histogram(sData(demoData), "Aligned (%)", col_by, 75)
-
-# Saturated %
-QC_histogram(sData(demoData), "Saturated (%)", col_by, 50) +
-  labs(title = "Sequencing Saturation (%)",
-       x = "Sequencing Saturation (%)")
-
-# Area
-QC_histogram(sData(demoData), "AOISurfaceArea", col_by, 1000, scale_trans = "log10")
-
-# Nuclei
-QC_histogram(sData(demoData), "AOINucleiCount", col_by, 20)
-
-
-#################################################
-## Calculate and plot geometric mean of the 
-## Negative probes for each segment.
-#################################################
-
-#  Calculate the geometric means of the negative controls for each of the samples.
-negativeGeoMeans <- 
-  esBy(negativeControlSubset(demoData), 
-       GROUP = "Module", 
-       FUN = function(x) { 
-         assayDataApply(x, MARGIN = 2, FUN = ngeoMean, elt = "exprs") 
-       }) 
-
-
-# Store the geometric means in the protocol (metadata)
-protocolData(demoData)[["NegGeoMean"]] <- negativeGeoMeans
-
-
-#  Explicitly copy the Negative geoMeans from sData to pData
-negCols <- paste0("NegGeoMean_", modules)
-pData(demoData)[, negCols] <- sData(demoData)[["NegGeoMean"]]
-
-
-#  Plot the geoMetric means for each sample.  
-for(ann in negCols) {
-  plt <- QC_histogram(pData(demoData), ann, col_by, 2, scale_trans = "log10")
-  print(plt)
-}
-
-
-
-###############################
-## Display Segment QC results
-## and filter segments
-###############################
-
-# Segment QC Summary
-kable(QC_Summary, caption = "QC Summary Table for each Segment")
-
-# Filter only segments that passed 
-# Subset data only on the samples that passed the QC Metrics. 
-demoData <- demoData[, QCResults$QCStatus == "PASS"]
-
-# Subsetting our dataset has removed samples which did not pass QC
-dim(demoData)
-
-
+if(SegmentQC==T){
+    # Set the QC parameters that we wish to use. These can be edited.  
+    QC_params <-
+      list(minSegmentReads = 1000, # Minimum number of reads (1000)
+           percentTrimmed = 80,    # Minimum % of reads trimmed (80%)
+           percentStitched = 80,   # Minimum % of reads stitched (80%)
+           percentAligned = 80,    # Minimum % of reads aligned (80%)
+           percentSaturation = 50, # Minimum sequencing saturation (50%)
+           minNegativeCount = 1,   # Minimum negative control counts (1)
+           maxNTCCount = 9000,     # Maximum counts observed in NTC well (9000)
+           minNuclei = 20,         # Minimum # of nuclei estimated (20)
+           minArea = 1000)         # Minimum segment area (1000)
+    
+    
+    # Include the QC parameters in the nanostring object 
+    demoData <- setSegmentQCFlags(demoData, 
+                        qcCutoffs = QC_params)   
+    
+    ##############################################
+    ###  Create QC summary table based on
+    ###  these flags.
+    ##############################################
+    
+    QCResults <- protocolData(demoData)[["QCFlags"]]
+    flag_columns <- colnames(QCResults)
+    
+    
+    QC_Summary <- data.frame(Pass = colSums(!QCResults[, flag_columns]),
+                             Warning = colSums(QCResults[, flag_columns]))
+    QCResults$QCStatus <- apply(QCResults, 1L, function(x) {
+      ifelse(sum(x) == 0L, "PASS", "WARNING")
+    })
+    
+    
+    # Display summary of the results
+    QC_Summary["TOTAL FLAGS", ] <-
+      c(sum(QCResults[, "QCStatus"] == "PASS"),
+        sum(QCResults[, "QCStatus"] == "WARNING"))
+    
+    
+    ################################################
+    ### Visualize segment QC
+    ################################################
+    
+    col_by <- "SegmentLabel"
+    
+    # Trimmed % 
+    QC_histogram(sData(demoData), "Trimmed (%)", col_by, 80)
+    
+    # Stitched %
+    QC_histogram(sData(demoData), "Stitched (%)", col_by, 80)
+    
+    # Aligned %
+    QC_histogram(sData(demoData), "Aligned (%)", col_by, 75)
+    
+    # Saturated %
+    QC_histogram(sData(demoData), "Saturated (%)", col_by, 50) +
+      labs(title = "Sequencing Saturation (%)",
+           x = "Sequencing Saturation (%)")
+    
+    # Area
+    QC_histogram(sData(demoData), "AOISurfaceArea", col_by, 1000, scale_trans = "log10")
+    
+    # Nuclei
+    QC_histogram(sData(demoData), "AOINucleiCount", col_by, 20)
+    
+    
+    #################################################
+    ## Calculate and plot geometric mean of the 
+    ## Negative probes for each segment.
+    #################################################
+    
+    # gene annotations modules
+    #  Assign the pkcs variable to the name of the gene annotation file 
+    pkcs <- annotation(demoData)
+    
+    
+    #  Create table with gene annotation file names
+    modules <- gsub(".pkc", "", pkcs)
+    
+    
+    #  Calculate the geometric means of the negative controls for each of the samples.
+    negativeGeoMeans <- 
+      esBy(negativeControlSubset(demoData), 
+           GROUP = "Module", 
+           FUN = function(x) { 
+             assayDataApply(x, MARGIN = 2, FUN = ngeoMean, elt = "exprs") 
+           }) 
+    
+    
+    # Store the geometric means in the protocol (metadata)
+    protocolData(demoData)[["NegGeoMean"]] <- negativeGeoMeans
+    
+    
+    #  Explicitly copy the Negative geoMeans from sData to pData
+    negCols <- paste0("NegGeoMean_", modules)
+    pData(demoData)[, negCols] <- sData(demoData)[["NegGeoMean"]]
+    
+    
+    #  Plot the geoMetric means for each sample.  
+    for(ann in negCols) {
+      plt <- QC_histogram(pData(demoData), ann, col_by, 2, scale_trans = "log10")
+      print(plt)
+    }
+    
+    
+    
+    ###############################
+    ## Display Segment QC results
+    ## and filter segments
+    ###############################
+    
+    # Segment QC Summary
+    kable(QC_Summary, caption = "QC Summary Table for each Segment")
+    
+    # Filter only segments that passed 
+    # Subset data only on the samples that passed the QC Metrics. 
+    demoData <- demoData[, QCResults$QCStatus == "PASS"]
+    
+    # Subsetting our dataset has removed samples which did not pass QC
+    dim(demoData)
+    
+}   
 
 ####################################################################
 ###  Probe QC
 ####################################################################
 
-# 1. Set flag values
-demoData <- setBioProbeQCFlags(demoData, 
-                               qcCutoffs = list(minProbeRatio = 0.1,
-                                                percentFailGrubbs = 20), 
-                               removeLocalOutliers = TRUE)
+if(ProbQC == T){
 
-
-# 2. Data set with raised flaggs for each probe. 
-ProbeQCResults <- fData(demoData)[["QCFlags"]]
-
-
-# 3. Table with flag summary count. 
-qc_df <- data.frame(Passed = sum(rowSums(ProbeQCResults[, -1]) == 0),
-                    Global = sum(ProbeQCResults$GlobalGrubbsOutlier),
-                    Local = sum(rowSums(ProbeQCResults[, -2:-1]) > 0
-                                & !ProbeQCResults$GlobalGrubbsOutlier))
-
-kable(qc_df, caption = "Probes flagged or passed as outliers")
-
-
-##################################
-### Filter Probes
-##################################
-
-#Subset object to exclude all that did not pass Ratio & Global testing
-ProbeQCPassed <- 
-  subset(demoData, 
-         fData(demoData)[["QCFlags"]][,c("LowProbeRatio")] == FALSE &
-           fData(demoData)[["QCFlags"]][,c("GlobalGrubbsOutlier")] == FALSE)
-
-# Resign to demoData
-demoData <- ProbeQCPassed 
-
-
+      # Set flag values
+    demoData <- setBioProbeQCFlags(demoData, 
+                                   qcCutoffs = list(minProbeRatio = 0.1,
+                                                    percentFailGrubbs = 20), 
+                                   removeLocalOutliers = TRUE)
+    
+    
+    # 2. Data set with raised flaggs for each probe. 
+    ProbeQCResults <- fData(demoData)[["QCFlags"]]
+    
+    
+    # 3. Table with flag summary count. 
+    qc_df <- data.frame(Passed = sum(rowSums(ProbeQCResults[, -1]) == 0),
+                        Global = sum(ProbeQCResults$GlobalGrubbsOutlier),
+                        Local = sum(rowSums(ProbeQCResults[, -2:-1]) > 0
+                                    & !ProbeQCResults$GlobalGrubbsOutlier))
+    
+    kable(qc_df, caption = "Probes flagged or passed as outliers")
+    
+    
+    ##################################
+    ### Filter Probes
+    ##################################
+    
+    #Subset object to exclude all that did not pass Ratio & Global testing
+    ProbeQCPassed <- 
+      subset(demoData, 
+             fData(demoData)[["QCFlags"]][,c("LowProbeRatio")] == FALSE &
+               fData(demoData)[["QCFlags"]][,c("GlobalGrubbsOutlier")] == FALSE)
+    
+    # Resign to demoData
+    demoData <- ProbeQCPassed 
+    
+}    
 
 ##################################
 ## Create gene level count matrix
@@ -241,176 +265,168 @@ target_demoData <- aggregateCounts(demoData)
 ################################################################
 ###  Limit of Quantification (LOQ)
 ################################################################
-
-################################
-## Calculate LOQ
-###############################
-# Define the LOQ cutoff and the minLOQ. 
-cutoff <- 2
-minLOQ <- 2
-
-
-# gene annotations modules
-#  Assign the pkcs variable to the name of the gene annotation file 
-pkcs <- annotation(demoData)
-
-
-#  Create table with gene annotation file names
-modules <- gsub(".pkc", "", pkcs)
-
-
-# Calculate LOQ per module tested
-LOQ <- data.frame(row.names = colnames(target_demoData))
-for(module in modules) {
-  vars <- paste0(c("NegGeoMean_", "NegGeoSD_"),
-                 module)
-  if(all(vars[1:2] %in% colnames(pData(target_demoData)))) {
-    LOQ[, module] <-
-      pmax(minLOQ,
-           pData(target_demoData)[, vars[1]] * 
-             pData(target_demoData)[, vars[2]] ^ cutoff)
-  }
-}
-
-
-# Store the LOQ information.
-pData(target_demoData)$LOQ <- LOQ
-
-
-#####################################
-### Create matrix with LOQ
-### Pass/Fail information
-#####################################
-
-
-
-#  Initialize an empty vector to store the LOQ_Mat values.
-LOQ_Mat <- c()
-
-# Run for loop.
-for(module in modules) {
-  ind <- fData(target_demoData)$Module == module
-  
-  # 2. Check if each value is greater than the corresponding LOQ value.
-  Mat_i <- t(esApply(target_demoData[ind, ], MARGIN = 1,
-                     FUN = function(x) {
-                       x > LOQ[, module]
-                     }))
-  LOQ_Mat <- rbind(LOQ_Mat, Mat_i)
-}
-
-
-# 3. Ensure ordering since this is stored outside of the geomxSet
-LOQ_Mat <- LOQ_Mat[fData(target_demoData)$TargetName, ]
-
-
-#####################################
-## Segment gene detection rate plot
-#####################################
-
-# 1. Save detection rate information to pheno data
-pData(target_demoData)$GenesDetected <- 
-  colSums(LOQ_Mat, na.rm = TRUE)
-pData(target_demoData)$GeneDetectionRate <-
-  pData(target_demoData)$GenesDetected / nrow(target_demoData)
-
-
-# 2. Classify each sample based on the percentage of genes above the LOQ. 
-pData(target_demoData)$DetectionThreshold <- 
-  cut(pData(target_demoData)$GeneDetectionRate,
-      breaks = c(0, 0.01, 0.05, 0.1, 0.15, 1),
-      labels = c("<1%", "1-5%", "5-10%", "10-15%", ">15%"))
-
-
-# 3. Create a barplot of the different classes. (1%, 5%, 10%, 15%)
-ggplot(pData(target_demoData),
-       aes(x = DetectionThreshold)) +
-  geom_bar(aes(fill = region)) +
-  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
-  theme_bw() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-  labs(x = "Gene Detection Rate",
-       y = "Segments, #",
-       fill = "Segment Type", title = "Number of Samples in Gene Detection Rate Samples")
-
-
-
-#######################################
-### Filter segments based on 
-### gene detection rate
-#######################################
-
-target_demoData <- target_demoData[, pData(target_demoData)$GeneDetectionRate >= .1]
-
-
-#######################################
-## Gene gene detection rate plot
-#######################################
-
-# Filter LOQ matrix
-LOQ_Mat <- LOQ_Mat[, colnames(target_demoData)]
-
-
-# Calculate the number of samples detected for each sample.
-fData(target_demoData)$DetectedSegments <- rowSums(LOQ_Mat, na.rm = TRUE)
-
-
-# Save the dection rate for each gene.
-fData(target_demoData)$DetectionRate <-
-  fData(target_demoData)$DetectedSegments / nrow(pData(target_demoData))
-
-
-
-# Create a data frame with for plotting with a frequency column.
-plot_detect <- data.frame(Freq = c(1, 5, 10, 20, 30, 50))
-
-
-# Calculate number of genes above each threshold.
-plot_detect$Number <-
-  unlist(lapply(c(0.01, 0.05, 0.1, 0.2, 0.3, 0.5),
-                function(x) {sum(fData(target_demoData)$DetectionRate >= x)}))
-
-
-# Calculate the percentage of genes above this threshold. 
-plot_detect$Rate <- plot_detect$Number / nrow(fData(target_demoData))
-rownames(plot_detect) <- plot_detect$Freq
-
-
-# Plot gene detection rate
-ggplot(plot_detect, aes(x = as.factor(Freq), y = Rate, fill = Rate)) +
-  geom_bar(stat = "identity") +
-  geom_text(aes(label = formatC(Number, format = "d", big.mark = ",")),
-            vjust = 1.6, color = "black", size = 4) +
-  scale_fill_gradient2(low = "orange2", mid = "lightblue",
-                       high = "dodgerblue3", midpoint = 0.65,
-                       limits = c(0,1),
-                       labels = scales::percent) +
-  theme_bw() +
-  scale_y_continuous(labels = scales::percent, limits = c(0,1),
-                     expand = expansion(mult = c(0, 0))) +
-  labs(x = "% of Segments",
-       y = "Genes Detected, % of Panel > LOQ")
-
-
-# Save plot
-#ggsave("../Outputs/Plots/LOQGeneDetectionRatePlot.png")
-
-
-#########################################
-### Filter genes based on gene detection
-### Rate
-##########################################
-#  Subset to target genes detected in at least 10% of the samples.
-negativeProbefData <- subset(fData(target_demoData), CodeClass == "Negative")
-neg_probes <- unique(negativeProbefData$TargetName)
-
-
-# Filter out genes detected in less than 10% of genes. 
-target_demoData <- 
-  target_demoData[fData(target_demoData)$DetectionRate >= 0.1 |
-                    fData(target_demoData)$TargetName %in% neg_probes, ]
-dim(target_demoData)
-
+if(LOQ==TRUE){
+    ################################
+    ## Calculate LOQ
+    ###############################
+    # Define the LOQ cutoff and the minLOQ. 
+    cutoff <- 2
+    minLOQ <- 2
+    
+    
+    
+    # Calculate LOQ per module tested
+    LOQ <- data.frame(row.names = colnames(target_demoData))
+    for(module in modules) {
+      vars <- paste0(c("NegGeoMean_", "NegGeoSD_"),
+                     module)
+      if(all(vars[1:2] %in% colnames(pData(target_demoData)))) {
+        LOQ[, module] <-
+          pmax(minLOQ,
+               pData(target_demoData)[, vars[1]] * 
+                 pData(target_demoData)[, vars[2]] ^ cutoff)
+      }
+    }
+    
+    
+    # Store the LOQ information.
+    pData(target_demoData)$LOQ <- LOQ
+    
+    
+    #####################################
+    ### Create matrix with LOQ
+    ### Pass/Fail information
+    #####################################
+    
+    
+    
+    #  Initialize an empty vector to store the LOQ_Mat values.
+    LOQ_Mat <- c()
+    
+    # Run for loop.
+    for(module in modules) {
+      ind <- fData(target_demoData)$Module == module
+      
+      # 2. Check if each value is greater than the corresponding LOQ value.
+      Mat_i <- t(esApply(target_demoData[ind, ], MARGIN = 1,
+                         FUN = function(x) {
+                           x > LOQ[, module]
+                         }))
+      LOQ_Mat <- rbind(LOQ_Mat, Mat_i)
+    }
+    
+    
+    # 3. Ensure ordering since this is stored outside of the geomxSet
+    LOQ_Mat <- LOQ_Mat[fData(target_demoData)$TargetName, ]
+    
+    
+    #####################################
+    ## Segment gene detection rate plot
+    #####################################
+    
+    # 1. Save detection rate information to pheno data
+    pData(target_demoData)$GenesDetected <- 
+      colSums(LOQ_Mat, na.rm = TRUE)
+    pData(target_demoData)$GeneDetectionRate <-
+      pData(target_demoData)$GenesDetected / nrow(target_demoData)
+    
+    
+    # 2. Classify each sample based on the percentage of genes above the LOQ. 
+    pData(target_demoData)$DetectionThreshold <- 
+      cut(pData(target_demoData)$GeneDetectionRate,
+          breaks = c(0, 0.01, 0.05, 0.1, 0.15, 1),
+          labels = c("<1%", "1-5%", "5-10%", "10-15%", ">15%"))
+    
+    
+    # 3. Create a barplot of the different classes. (1%, 5%, 10%, 15%)
+    ggplot(pData(target_demoData),
+           aes(x = DetectionThreshold)) +
+      geom_bar(aes(fill = region)) +
+      geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+      theme_bw() +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+      labs(x = "Gene Detection Rate",
+           y = "Segments, #",
+           fill = "Segment Type", title = "Number of Samples in Gene Detection Rate Samples")
+    
+    
+    
+    #######################################
+    ### Filter segments based on 
+    ### gene detection rate
+    #######################################
+    
+    target_demoData <- target_demoData[, pData(target_demoData)$GeneDetectionRate >= .01]
+    
+    
+    #######################################
+    ## Gene gene detection rate plot
+    #######################################
+    
+    # Filter LOQ matrix
+    LOQ_Mat <- LOQ_Mat[, colnames(target_demoData)]
+    
+    
+    # Calculate the number of samples detected for each sample.
+    fData(target_demoData)$DetectedSegments <- rowSums(LOQ_Mat, na.rm = TRUE)
+    
+    
+    # Save the dection rate for each gene.
+    fData(target_demoData)$DetectionRate <-
+      fData(target_demoData)$DetectedSegments / nrow(pData(target_demoData))
+    
+    
+    
+    # Create a data frame with for plotting with a frequency column.
+    plot_detect <- data.frame(Freq = c(1, 5, 10, 20, 30, 50))
+    
+    
+    # Calculate number of genes above each threshold.
+    plot_detect$Number <-
+      unlist(lapply(c(0.01, 0.05, 0.1, 0.2, 0.3, 0.5),
+                    function(x) {sum(fData(target_demoData)$DetectionRate >= x)}))
+    
+    
+    # Calculate the percentage of genes above this threshold. 
+    plot_detect$Rate <- plot_detect$Number / nrow(fData(target_demoData))
+    rownames(plot_detect) <- plot_detect$Freq
+    
+    
+    # Plot gene detection rate
+    ggplot(plot_detect, aes(x = as.factor(Freq), y = Rate, fill = Rate)) +
+      geom_bar(stat = "identity") +
+      geom_text(aes(label = formatC(Number, format = "d", big.mark = ",")),
+                vjust = 1.6, color = "black", size = 4) +
+      scale_fill_gradient2(low = "orange2", mid = "lightblue",
+                           high = "dodgerblue3", midpoint = 0.65,
+                           limits = c(0,1),
+                           labels = scales::percent) +
+      theme_bw() +
+      scale_y_continuous(labels = scales::percent, limits = c(0,1),
+                         expand = expansion(mult = c(0, 0))) +
+      labs(x = "% of Segments",
+           y = "Genes Detected, % of Panel > LOQ")
+    
+    
+    # Save plot
+    #ggsave("../Outputs/Plots/LOQGeneDetectionRatePlot.png")
+    
+    
+    #########################################
+    ### Filter genes based on gene detection
+    ### Rate
+    ##########################################
+    #  Subset to target genes detected in at least 10% of the samples.
+    negativeProbefData <- subset(fData(target_demoData), CodeClass == "Negative")
+    neg_probes <- unique(negativeProbefData$TargetName)
+    
+    
+    # Filter out genes detected in less than 10% of genes. 
+    target_demoData <- 
+      target_demoData[fData(target_demoData)$DetectionRate >= 0.1 |
+                        fData(target_demoData)$TargetName %in% neg_probes, ]
+    dim(target_demoData)
+}    
 
 
 ################################################################################
@@ -424,29 +440,34 @@ dim(target_demoData)
 ### Q3 Normalization
 ##################################
 
-# Q3 norm (75th percentile) for WTA/CTA  with or without custom spike-ins
-target_demoData <- normalize(target_demoData ,
-                             norm_method = "quant", 
-                             desiredQuantile = .75,
-                             toElt = "q_norm")
+if(Q3Norm==T){
 
+  # Q3 norm (75th percentile) for WTA/CTA  with or without custom spike-ins
+  target_demoData <- normalize(target_demoData ,
+                               norm_method = "quant", 
+                               desiredQuantile = .75,
+                               toElt = "q_norm")
+
+}
 
 ###################################
 ## Background normalization
 ###################################
 
-# Background normalization for WTA/CTA without custom spike-in
-target_demoData <- normalize(target_demoData ,
-                             norm_method = "neg", 
-                             fromElt = "exprs",
-                             toElt = "neg_norm")
+if(backgroundNorm==T){
+
+  # Background normalization for WTA/CTA without custom spike-in
+  target_demoData <- normalize(target_demoData ,
+                               norm_method = "neg", 
+                               fromElt = "exprs",
+                               toElt = "neg_norm")
 
 
-
+}
 
 
 ##################################
 ## Save Data
 ##################################
-save(target_demoData,file = "../Data/Processed/NormalizedData.Rdata")
+save(target_demoData,file = "Data/Processed/NormalizedData.Rdata")
 

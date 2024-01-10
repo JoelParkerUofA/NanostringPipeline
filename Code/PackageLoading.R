@@ -24,5 +24,5 @@ library(scales) # for percent
 library(reshape2)  
 library(cowplot) 
 
-
+source(paste0("R/",dir("R")))
 
