@@ -13,6 +13,7 @@ if (!require("BiocManager", quietly = TRUE))
 #BiocManager::install("GeomxTools")
 #BiocManager::install("GeoMxWorkflows")
 
+# For preprocessing
 library(NanoStringNCTools)
 library(GeomxTools)
 library(GeoMxWorkflows)
@@ -23,6 +24,11 @@ library(dplyr)
 library(scales) # for percent
 library(reshape2)  
 library(cowplot) 
+
+# For dim reduction
+library(umap)
+library(Rtsne)
+library(pheatmap)  # for pheatmap
 
 source(paste0("R/",dir("R")))
 
