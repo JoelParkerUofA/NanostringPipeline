@@ -25,6 +25,10 @@ library(scales) # for percent
 library(reshape2)  
 library(cowplot) 
 
+
+# For batch correction
+library(sva)
+
 # For dim reduction
 library(umap)
 library(Rtsne)
