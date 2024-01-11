@@ -16,9 +16,22 @@ ProbeQC = T
 LOQ = F
 
 
-# Which normalization would you like to use?
-Q3Norm = T
-backgroundNorm = F
+# Which normalization would you like to use? 
+# Options at q_norm (Q3 normalization ), b_norm (background normalization)
+#. or TPM (transcripts per million)
+
+norm_method = "TPM"
+
+
+# Do you want to use a log transformation? If so what base do you want to use?
+log_transformation = T
+
+base = 2
+
+
+
+# Do you want to include batch effect adjustment?
+batchEff = T
 
 ###############################################################################
 ### Step 1: 
@@ -213,7 +226,7 @@ if(SegmentQC==T){
 ###  Probe QC
 ####################################################################
 
-if(ProbQC == T){
+if(ProbeQC == T){
 
       # Set flag values
     demoData <- setBioProbeQCFlags(demoData, 
@@ -440,13 +453,13 @@ if(LOQ==TRUE){
 ### Q3 Normalization
 ##################################
 
-if(Q3Norm==T){
+if(norm_method == "q_norm"){
 
   # Q3 norm (75th percentile) for WTA/CTA  with or without custom spike-ins
   target_demoData <- normalize(target_demoData ,
                                norm_method = "quant", 
                                desiredQuantile = .75,
-                               toElt = "q_norm")
+                               toElt = norm_method)
 
 }
 
@@ -454,16 +467,91 @@ if(Q3Norm==T){
 ## Background normalization
 ###################################
 
-if(backgroundNorm==T){
+if(norm_method == "b_norm"){
 
   # Background normalization for WTA/CTA without custom spike-in
   target_demoData <- normalize(target_demoData ,
                                norm_method = "neg", 
                                fromElt = "exprs",
-                               toElt = "neg_norm")
+                               toElt = norm_method)
 
 
 }
+
+
+#############################################
+## Transcripts per-million standardization
+#############################################
+
+if(norm_method== "TPM"){
+  
+  
+  TPM_norm = apply(target_demoData@assayData$exprs, 2,
+                   FUN = function(x){ (x/sum(x))*1000000 })
+  
+  
+  # Add assay data
+  assayDataElement(target_demoData,"TPM") = TPM_norm
+  
+  
+}
+
+
+
+##############################################
+### Log transformation
+##############################################
+
+if(log_transformation ==T) {
+  
+  
+  # log transform assay data
+  assayLogT = log(target_demoData@assayData[[norm_method]], base = base)
+  
+  
+  # Add assay data to the 
+  assayDataElement(target_demoData,paste0("logT-base",base)) = assayLogT
+  
+  
+}
+
+
+
+
+
+################################################################################
+## Batch Effects (here batch info is captured in "Expiriment variable)
+##. There are two cases for this because if we used log transformation then
+## we want to use the log transformation assay slot. 
+################################################################################
+if(batchEff==T){
+  
+  # If we didnt log transform then we want to use the norm_method slot. 
+  if(log_transformation==F){
+  
+      # Do batch correction
+      adjusted_expression <- ComBat(dat = target_demoData@assayData[[norm_method]],
+                                    batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = T)
+      
+      # Save batch corrected results in nanostring object
+      assayDataElement(target_demoData,"batch_corrected") = adjusted_expression
+  }
+  
+  
+  # if log transformed, we will want to you to log transformation assay slot
+  if(log_transformation==T){
+    
+    # Do batch correction
+    adjusted_expression <- ComBat(dat = target_demoData@assayData[[paste0("logT-base",base)]],
+                                  batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = T)
+    
+    # Save batch corrected results in nanostring object
+    assayDataElement(target_demoData,"batch_corrected") = adjusted_expression
+  }
+  
+  
+}
+
 
 
 ##################################
