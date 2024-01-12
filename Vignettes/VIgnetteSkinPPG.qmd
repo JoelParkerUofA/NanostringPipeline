@@ -1,0 +1,234 @@
+---
+title: "NanostringPPGVignette"
+format:
+  html:
+    code-fold: true
+editor: visual
+---
+
+# Introduction
+
+This vignette aims to demonstrate the skin PPG workflow. This workflow starts from .dcc files, pkc file, and annotation files and works through the preprocessing and exploratory analysis. The code folder in the main directory of this repository contains the .R files corresponding to each of the analysis steps. This pipeline is currently in progress and will have more analysis steps added to it (for example, deconvolution). Below is a demostration of the currently steps of this pipelineline.
+
+add diagram here.
+
+In the following sections of this vignette, we will walk through each substep of the analysis to thoroughly explain what the code is doing. Currently, the pipeline has more functionality than necessary, and some substeps can be "turned off and on" when necessary.
+
+Before we begin, we need to load the packages required for this workflow.
+
+```{r PackageLoading, warning=FALSE, message=FALSE}
+################################################################################
+## The purpose of this script is to load and install the required packages 
+## For the workflow
+################################################################################
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+# The following initializes most up to date version of Bioc
+#BiocManager::install(version="3.15")
+
+#BiocManager::install("NanoStringNCTools")
+#BiocManager::install("GeomxTools")
+#BiocManager::install("GeoMxWorkflows")
+
+# For preprocessing
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(knitr)
+library(ggplot2)
+library(ggforce)
+library(dplyr)
+library(scales) # for percent
+library(reshape2)  
+library(cowplot) 
+
+
+# For batch correction
+library(sva)
+
+# For dim reduction
+library(umap)
+library(Rtsne)
+library(pheatmap)  # for pheatmap
+
+source(paste0("../R/",dir("../R")))
+
+```
+
+# QC and Normalization
+
+The quality control and normalization section starts with the raw data files (.dcc, pkc, and annotation files) and works through the following substeps:
+
+-   Data loading
+
+-   Quality control
+
+    -   Segment QC (Default = ON)
+
+    -   Probe QC (Default = ON)
+
+    -   Limit of quanitification (LOQ) (Default = ON)
+
+-   Normalization
+
+    -   Quantile 3 (Q3) normalization
+
+    -   Background normalization
+
+    -   Transcripts per million (TPM) (default = ON)
+
+-   Log transformation (Default = ON, base=2)
+
+-   Batch correction (Default = ON)
+
+We demonstrate the order and structure of these steps in the diagram below.
+
+To see the detailed information about segment QC, probe QC, LOQ, and batch correction, click the drop downs below.
+
+::: {.callout-note collapse="true"}
+## Segment QC
+
+Every ROI/AOI segment is tested for:
+
+-   Raw sequencing reads: segments with \>1000 raw reads are removed.
+
+-   \% Aligned,% Trimmed, or % Stitched sequencing reads: segments below \~80% for one or more of these QC parameters are removed.
+
+-   \% Sequencing saturation (\[1-deduplicated reads/aligned reads\]%): segments below \~50% require additional sequencing to capture full sample diversity and are not typically analyzed until improved.
+
+-   Negative Count: this is the geometric mean of the several unique negative probes in the GeoMx panel that do not target mRNA and establish the background count level per segment; segments with low negative counts (1-10) are not necessarily removed but may be studied closer for low endogenous gene signal and/or insufficient tissue sampling.
+
+-   No Template Control (NTC) count: values \>1,000 could indicate contamination for the segments associated with this NTC; however, in cases where the NTC count is between 1,000- 10,000, the segments may be used if the NTC data is uniformly low (e.g. 0-2 counts for all probes).
+
+-   Nuclei: \>100 nuclei per segment is generally recommended; however, this cutoff is highly study/tissue dependent and may need to be reduced; what is most important is consistency in the nuclei distribution for segments within the study.
+
+-   Area: generally correlates with nuclei; a strict cutoff is not generally applied based on area.
+
+| Metric                                    | Default value |
+|-------------------------------------------|---------------|
+| Aligned, trimmed, and stitched percentage | 80 %          |
+| Sequencing saturation                     | 50 %          |
+| Negative count                            | 1             |
+| No template control                       | 9000          |
+| Min. Nuclei                               | 20            |
+| Min. Area                                 | 1000          |
+
+: Default Values Of Segment QC Metrics
+:::
+
+::: {.callout-note collapse="true"}
+## Probe QC
+
+Before we summarize our data into gene-level count data, we will remove low-performing probes. In short, this QC is an outlier removal process, whereby probes are either removed
+
+  -   Entirely from the study (global)
+
+  -   From specific segments (local).
+
+A probe is removed globally from the dataset if either of the following is true:
+
+-   the geometric mean of that probe's counts from all samples divided by the geometric mean of all probe counts representing the target from all samples is less than 0.1. (this only effect the negative control probes)
+
+-   The probe is an outlier according to the Grubb's test in at least 20% of the segments.
+
+A probe is removed locally (from a given segment) if the probe is an outlier according to the Grubb's test in that segment.
+
+
+::: {.callout-note collapse="true"}
+#### Explanation of the Grubbs test (Joel)
+
+In the nanostring github it shows they are performing the Grubbs test on the log base 10 scale for all of the probe values within a sample. Below is the Grubbs test procedure they followed.
+
+[Grubbs](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35h1.htm) test:
+
+The Grubbs test, tests if there exists at least 1 outlier in data that is approximately normal.
+
+H0: There does not exist an outlier. H1: Is an outlier.
+
+The Grubbs test is defined as:
+
+Let $Y_{ij}$ be the $i^{th}$ probe in the $j^{th}$ sample. The Grubbs test statistic for the $j^{th}$ sample is:
+
+$$
+G_j = \frac{max |Y_{ij} - \bar{Y_j}|}{s_j}
+$$ where $\bar{Y}_j$ is the sample mean and $s_j$ is the standard deviation. We reject H0 if:
+
+$$
+G_j > \frac{N-1}{\sqrt{N}}\sqrt{\frac{t^2_{\alpha/2N, N-2}}{N-2 + t^2_{\alpha/2N, N-2} }}
+$$
+
+
+From their code they run the grubbs test on each sample and return the probe name that has the max value and rejected the Grubbs test.
+
+:::
+
+
+:::
+
+::: {.callout-note collapse="true"}
+## Limit of quantification (LOQ)
+:::
+
+::: {.callout-note collapse="true"}
+## Batch correction
+:::
+
+::: {.callout-warning collapse="true"}
+## Where to edit code.
+
+All the places you need to edit the code are at the top of the script. You will need to edit
+
+-   Which QC parts to use
+
+    -   Segment QC (SegmentQC)
+
+    -   Probe QC (ProveQC)
+
+    -   Limit of quantification (LOQ)
+
+-   Normalization method to use
+
+    -   The options are
+
+        -   Quantile normalization (q_norm)
+
+        -   Background normalization (b_norm)
+
+        -   Transcripts per million (TPM)
+
+-   Log transformation (log_transformation)
+
+    -   If you set log_transformation= TRUE, then you must provide a base to use.
+
+-   Batch effect (batchEff)
+
+Once you have identified the parts to include in the analysis, you will need to provide the variable names in the annotation file that contain the following information:
+
+-   ROI
+
+-   AOI
+
+-   Batch (only include if batchEff=TRUE)
+
+-   DCC names (DCC_col)
+
+    -   This is a variable that links the metadata to the .dcc files.
+
+Finally, provide paths to the folders that contain the .dcc files, the pkc file, and the annotation excel file.
+:::
+
+## Quality Control
+
+### Segment QC
+
+### Probe QC
+
+### Limit of quantification (LOQ)
+
+## Log-transformation
+
+## Batch correction
+
+# Exploratory analysis
