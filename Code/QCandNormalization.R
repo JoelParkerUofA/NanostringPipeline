@@ -2,12 +2,17 @@
 ###  This script is used for the following steps
 ###  1. Data loading (.DCC files, PKC files and sample annotation)
 ##   2. Quality Control
-##      - SegmentQC
-##      - ProbeQC
-##      - Limit of Quantification QC (LOQ)
+##      - SegmentQC (default = ON)
+##      - ProbeQC (default = ON)
+##      - Limit of Quantification QC (LOQ) (default = OFF)
 ##   3. Normalization
 ##      - Q3 Normalization
 ##      - Background Normalization
+##      - Transcripts per million (default = ON)
+##
+##  4. Log transformation (default = ON, base=2)
+##
+##  5. Batch correction (default = ON)
 ###############################################################################
 
 # Which QC metrics would you like to use?
@@ -33,6 +38,20 @@ base = 2
 # Do you want to include batch effect adjustment?
 batchEff = T
 
+
+
+# What are the ROI and AOI names in the annotation file
+
+ROI = "region"
+
+AOI = "SegmentLabel"
+
+# Batch is only required if batchEff=T
+batch = "Experiment"
+
+
+DCC_col = "Sample_ID"
+
 ###############################################################################
 ### Step 1: 
 ### DCC files (folder), PKC Files (folder)
@@ -47,6 +66,8 @@ PKC = "Data/Raw/PKC"
 
 SampleAnnotation = "Data/Raw/Annotation"
 
+
+DCC_col = "Sample_ID"
 
 ######################################
 #### Get all paths for the raw data
@@ -74,18 +95,18 @@ demoData <- readNanoStringGeoMxSet(dccFiles = DCCFiles,
                                    pkcFiles = PKCFiles,
                                    phenoDataFile = SampleAnnotationFile,
                                    phenoDataSheet = "Sheet1",
-                                   phenoDataDccColName = "Sample_ID"
+                                   phenoDataDccColName = DCC_col
 )
 
 
 
 ################################################################################
-### Quality Control
+### Step 2: Quality Control
 ###   Consists of the following subparts
 ###     - Count shift
 ###     - Segment QC
 ###     - Probe QC
-###     - LOQ (Limit of quanification filtering
+###     - LOQ (Limit of quantification filtering
 ###############################################################################
 
 ##############################################################
@@ -142,27 +163,28 @@ if(SegmentQC==T){
     ### Visualize segment QC
     ################################################
     
-    col_by <- "SegmentLabel"
+    col_by <- AOI
     
     # Trimmed % 
-    QC_histogram(sData(demoData), "Trimmed (%)", col_by, 80)
+    QC_histogram(sData(demoData), "Trimmed (%)", col_by, QC_params$percentTrimmed)
     
     # Stitched %
-    QC_histogram(sData(demoData), "Stitched (%)", col_by, 80)
+    QC_histogram(sData(demoData), "Stitched (%)", col_by, QC_params$percentStitched)
     
     # Aligned %
-    QC_histogram(sData(demoData), "Aligned (%)", col_by, 75)
+    QC_histogram(sData(demoData), "Aligned (%)", col_by, QC_params$percentAligned)
     
     # Saturated %
-    QC_histogram(sData(demoData), "Saturated (%)", col_by, 50) +
+    QC_histogram(sData(demoData), "Saturated (%)", col_by, QC_params$percentSaturation) +
       labs(title = "Sequencing Saturation (%)",
            x = "Sequencing Saturation (%)")
     
     # Area
-    QC_histogram(sData(demoData), "AOISurfaceArea", col_by, 1000, scale_trans = "log10")
+    QC_histogram(sData(demoData), "AOISurfaceArea", col_by, QC_params$minArea,
+                 scale_trans = "log10")
     
     # Nuclei
-    QC_histogram(sData(demoData), "AOINucleiCount", col_by, 20)
+    QC_histogram(sData(demoData), "AOINucleiCount", col_by, QC_params$minNuclei)
     
     
     #################################################
@@ -354,7 +376,7 @@ if(LOQ==TRUE){
     # 3. Create a barplot of the different classes. (1%, 5%, 10%, 15%)
     ggplot(pData(target_demoData),
            aes(x = DetectionThreshold)) +
-      geom_bar(aes(fill = region)) +
+      geom_bar(aes(fill = get(ROI))) +
       geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
       theme_bw() +
       scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
@@ -443,10 +465,11 @@ if(LOQ==TRUE){
 
 
 ################################################################################
-### Normalization
+### Step 3: Normalization
 ###   There are two types of normalization possible
 ###     - Q3 normalization
 ###     - Background Normalization
+###     - Transcripts per million (default)
 ################################################################################
 
 ##################################
