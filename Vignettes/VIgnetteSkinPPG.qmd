@@ -84,14 +84,9 @@ The quality control and normalization section starts with the raw data files (.d
 
 -   Batch correction (Default = ON)
 
-We demonstrate the order and structure of these steps in the diagram below. Please 
-note, in this diagram the arrows do not represent a dependency but rather to show the
-order the data is processed. For example, we do not need to run segment QC in order
-to run probe QC. However, if both segment QC and probe QC are turned "ON", then the 
-segment QC will be ran first. 
+We demonstrate the order and structure of these steps in the diagram below. Please note, in this diagram the arrows do not represent a dependency but rather to show the order the data is processed. For example, we do not need to run segment QC in order to run probe QC. However, if both segment QC and probe QC are turned "ON", then the segment QC will be ran first.
 
-
-![Elephant](../Images/Proprocessing workflow.png)
+![QC and Normalization Workflow](../Images/Proprocessing%20workflow.png)
 
 To see the detailed information about segment QC, probe QC, LOQ, and batch correction, click the drop downs below.
 
@@ -129,11 +124,11 @@ Every ROI/AOI segment is tested for:
 ::: {.callout-note collapse="true"}
 ## Probe QC
 
-We will remove low-performing probes before summarizing our data into gene-level count data. In short, this QC is an outlier removal process whereby we remove probes in one of two ways. 
+We will remove low-performing probes before summarizing our data into gene-level count data. In short, this QC is an outlier removal process whereby we remove probes in one of two ways.
 
-  -   Entirely from the study (global)
+-   Entirely from the study (global)
 
-  -   From specific segments (local).
+-   From specific segments (local).
 
 A probe is removed globally from the dataset if either of the following is true:
 
@@ -142,7 +137,6 @@ A probe is removed globally from the dataset if either of the following is true:
 -   The probe is an outlier according to the Grubb's test in at least 20% of the segments.
 
 We remove a probe locally (from a given segment) if the probe is an outlier according to the Grubb's test in that segment.
-
 
 ::: {.callout-note collapse="true"}
 #### Explanation of the Grubbs test (Joel)
@@ -167,12 +161,8 @@ $$
 G_j > \frac{N-1}{\sqrt{N}}\sqrt{\frac{t^2_{\alpha/2N, N-2}}{N-2 + t^2_{\alpha/2N, N-2} }}
 $$
 
-
-From their code, they run the Grubbs test on each sample, return the probe name with the max value if the Grubb's test rejected the null hypothesis. 
-
+From their code, they run the Grubbs test on each sample, return the probe name with the max value if the Grubb's test rejected the null hypothesis.
 :::
-
-
 :::
 
 ::: {.callout-note collapse="true"}
@@ -184,27 +174,21 @@ $$LOQ_{i} = geomean(NegProbe_{i}) * geoSD(NegProbe_{i})^{n}$$
 
 We typically use 2 geometric standard deviations ($n = 2$) above the geometric mean as the LOQ, which is reasonable for most studies. We also recommend that a minimum LOQ of 2 be used if the LOQ calculated in a segment is below this threshold.
 
-
 #### Filtering using LOQ
 
-After determining the limit of quantification (LOQ) per segment, nanostring recommends filtering out either segments and/or genes with abnormally low signals. 
+After determining the limit of quantification (LOQ) per segment, nanostring recommends filtering out either segments and/or genes with abnormally low signals.
 
-Nanostring determines the number of genes detected in each segment across the dataset. We plot the number of segments based on the percentage of genes that fall above the LOQ threshold, allowing us to see the impact of filtering. <mark> Currently, the code filters all segments with less than 10% of genes above the LOQ threshold. Additionally, any genes not falling above the LOQ threshold in at least 10% of segments are filtered out.  </mark> 
-
-
+Nanostring determines the number of genes detected in each segment across the dataset. We plot the number of segments based on the percentage of genes that fall above the LOQ threshold, allowing us to see the impact of filtering. <mark> Currently, the code filters all segments with less than 10% of genes above the LOQ threshold. Additionally, any genes not falling above the LOQ threshold in at least 10% of segments are filtered out. </mark>
 :::
-
-
 
 ::: {.callout-note collapse="true"}
 ## Batch correction
 
 Combat allows users to adjust for batch effects in datasets where the batch covariate is known, using the methodology described in [Johnson et al. 2007](https://academic.oup.com/biostatistics/article/8/1/118/252073). It uses parametric or non-parametric empirical Bayes frameworks to adjust data for batch effects. By default, this method uses a parametric adjustment. This method returns an expression matrix with corrected batch effects. The input data are assumed to be cleaned and normalized before batch effect removal.
-
 :::
 
 ::: {.callout-warning collapse="true"}
-## Where to edit code.
+## Where to edit code for QC and Normalization.
 
 All the places you need to edit the code are at the top of the script. You will need to edit
 
@@ -247,8 +231,7 @@ Once you have identified the parts to include in the analysis, you will need to 
 Finally, provide paths to the folders that contain the .dcc files, the pkc file, and the annotation excel file.
 :::
 
-
-```{r QCandNormalization}
+```{r QCandNormalization, warning=FALSE, message=FALSE}
 ###############################################################################
 ###  This script is used for the following steps
 ###  1. Data loading (.DCC files, PKC files and sample annotation)
@@ -806,7 +789,7 @@ if(batchEff==T){
   
       # Do batch correction
       adjusted_expression <- ComBat(dat = target_demoData@assayData[[norm_method]],
-                                    batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = T)
+                                    batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = F)
       
       # Save batch corrected results in nanostring object
       assayDataElement(target_demoData,"batch_corrected") = adjusted_expression
@@ -818,7 +801,7 @@ if(batchEff==T){
     
     # Do batch correction
     adjusted_expression <- ComBat(dat = target_demoData@assayData[[paste0("logT-base",base)]],
-                                  batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = T)
+                                  batch = target_demoData@phenoData@data$Experiment,mod = NULL, prior.plots = F)
     
     # Save batch corrected results in nanostring object
     assayDataElement(target_demoData,"batch_corrected") = adjusted_expression
@@ -836,11 +819,154 @@ save(target_demoData,file = "../Data/Processed/NormalizedData.Rdata")
 
 ```
 
-
-
 # Exploratory analysis
 
-The exploratory analysis allows us to visualize our data to give 
+The exploratory analysis allows us to visualize our data to see high-level patterns without requiring a formal hypothesis. Additionally, the exploratory analysis can serve as a quality control tool. For example, when we do dimensionality reduction, we may notice that most of the variance in the data is coming from the different batches, and we may want to go back to preprocessing and do batch correction before continuing with the downstream analysis. In this exploratory analysis, we are using:
+
+* Uniform Manifold Projection (UMAP) for dimensionality reduction.
+
+* Heatmaps
+
+::: {.callout-note collapse="true"}
+## Technical Information About UMAP
+
+Uniform manifold approximation and projection (UMAP) is a non-linear dimensionality reduction method rooted in topology. The goal of UMAP is to find a low-dimensional representation
+that best preserves the local structure of the high-dimensional space. The [original method](https://arxiv.org/abs/1802.03426) was published in 2018 and is a staple in scRNA-seq pipelines. The mathematical details for UMAP are complex. However, the authors of UMAP provide a [high-level introduction to UMAP](https://umap-learn.readthedocs.io/en/latest/clustering.html) on their website. [Becht et. al](https://www.nature.com/articles/nbt.4314) show the advantages of UMAP for visualization of scRNA-seq over traditional methods like PCA and t-SNE. 
+:::
+
+::: {.callout-warning collapse="true"}
+## Where to edit code for exploratory analysis.
+
+First, you must "turn off/on" the UMAP and heatmap sections. By default, these are turned on; to turn them off, set UMAP =FALSE and/or Heatmap = FALSE. Then, you will need to provide a path to the data object, which is the output of the QC and normalization step. Since it is possible to have multiple expression matrices after QC and normalization, you need to specify which you want to use. You can find the expression data options using targetdemoData@assays. By default, we are using the batch-corrected data (elt="batch_corrected"). Finally, for the exploratory analysis, you must provide the names of the ROI, AOI, slide name, and batch information. If you are not using batch correction, you can set this to "batch=NULL"
+
+:::
+
+
+```{r ExploratoryAnalysis}
+
+###############################################################################
+## Eploratory Analysis
+##    This consists of two parts
+##      - Dimintionality reduction
+##      - Heatmaps
+################################################################################
+
+## Which exploratory analysis section would you like to include?
+UMAP = TRUE
+
+Heatmap = TRUE
+
+# What is the path to the processed data?
+data_path = "../Data/Processed/NormalizedData.Rdata"
+
+# Which assay to use? to see options use: target_demoData@assayData$
+elt = "batch_corrected"
+
+# Provide the variable names for ROI, AOI, and slide names
+ROI = "region"
+
+AOI = "SegmentLabel"
+
+batch = "Experiment"
+
+slideName = "SlideName"
+
+######################################
+## Load Processed Data
+######################################
+
+# You may need to edit this code to update path
+load(data_path) 
+
+
+
+######################################
+## Sample Distribution
+######################################
+
+
+knitr::kable(target_demoData@phenoData@data %>%
+               select(as.name(slideName),as.name(AOI),as.name(ROI)) %>%
+               group_by(across(all_of(c(slideName, ROI, AOI))))%>%
+               summarise(N=n()) %>%
+               dcast(formula(paste0(slideName,"~",ROI,"+",AOI))),
+             caption = "Distribution of Samples for each slide acrross ROI and (AOI)") %>%
+  kableExtra::kable_paper()
+
+
+
+######################################
+## UMAP 
+######################################
+
+if(UMAP == TRUE){
+    # update defaults for umap to contain a stable random_state (seed)
+    custom_umap <- umap::umap.defaults 
+    custom_umap$random_state <- 42 
+    
+    
+    # run UMAP
+    umap_out <-
+      umap(t(assayDataElement(target_demoData , elt = elt)), 
+           config = custom_umap)  # Uses default umap settings
+    
+    
+    # Save the results from the UMAP in the data object
+    pData(target_demoData)[, c("UMAP1", "UMAP2")] <- umap_out$layout[, c(1,2)] 
+    
+    if(is.null(batch)){
+      
+    # Plot using ggplot
+    ggplot(pData(target_demoData), 
+           aes(x = UMAP1, y = UMAP2, color = !!as.name(ROI))) + 
+      geom_point(size = 3) + 
+      theme_bw() + ggtitle("Dim Reduction Using UMAP.")
+      
+    } else {
+      # Plot using ggplot
+      ggplot(pData(target_demoData), 
+             aes(x = UMAP1, y = UMAP2, color = !!as.name(ROI), shape = !!as.name(batch))) + 
+        geom_point(size = 3) + 
+        theme_bw() + ggtitle("Dim Reduction Using UMAP.")
+      
+      
+    }
+}
+
+
+######################################
+## Heatmap
+######################################
+
+if(Heatmap == TRUE){
+
+    # Log transform gene expression data. 
+    mat <- target_demoData@assayData[[elt]]
+    
+    
+    # Summarize genes by variance and get the top 100
+    var_genes <- apply(mat,1,var)
+    
+    top50Genes <- var_genes[order(var_genes, decreasing = T)[1:50]]
+    
+    
+    annot <- target_demoData@phenoData@data %>%
+      select(all_of(c(ROI,AOI,slideName))) %>%
+      arrange(!!as.name(slideName), !!as.name(AOI), !!as.name(ROI)) 
+    
+    
+    
+    
+    pheatmap(mat[names(top50Genes),rownames(annot)], cluster_rows = F, cluster_cols = F,
+             annotation_col = annot, show_rownames = F, show_colnames = F, 
+             main = "Top 50 variable genes (log2-transformed) gene expression", border_color = "black" )
+}
+
+
+```
+
+
+
 
 
 
