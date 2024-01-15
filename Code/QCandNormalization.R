@@ -18,7 +18,7 @@
 # Which QC metrics would you like to use?
 SegmentQC = T
 ProbeQC = T
-LOQ = F
+LOQ = F 
 
 
 # Which normalization would you like to use? 
