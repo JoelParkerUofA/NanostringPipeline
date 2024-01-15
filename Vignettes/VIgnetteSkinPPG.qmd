@@ -11,7 +11,7 @@ editor: visual
 
 This vignette aims to demonstrate the skin PPG workflow. This workflow starts from .dcc files, pkc file, and annotation files and works through the preprocessing and exploratory analysis. The code folder in the main directory of this repository contains the .R files corresponding to each of the analysis steps. This pipeline is currently in progress and will have more analysis steps added to it (for example, deconvolution). Below is a demonstration of the currently steps of this pipelineline.
 
-add diagram here.
+<img src="../Images/NanostringPipelineOverview.png" alt="image" width="65%" height="auto">
 
 In the following sections of this vignette, we will walk through each substep of the analysis to thoroughly explain what the code is doing. Currently, the pipeline has more functionality than necessary, and some substeps can be "turned off and on" when necessary.
 
@@ -231,7 +231,7 @@ Once you have identified the parts to include in the analysis, you will need to 
 Finally, provide paths to the folders that contain the .dcc files, the pkc file, and the annotation excel file.
 :::
 
-```{r QCandNormalization, warning=FALSE, message=FALSE}
+```{r QCandNormalization, warning=FALSE, message=FALSE, results='asis'}
 ###############################################################################
 ###  This script is used for the following steps
 ###  1. Data loading (.DCC files, PKC files and sample annotation)
@@ -388,9 +388,9 @@ if(SegmentQC==T){
     
     
     # Display summary of the results
-   print( knitr::kable(QC_Summary["TOTAL FLAGS", ] <-
-      c(sum(QCResults[, "QCStatus"] == "PASS"),
-        sum(QCResults[, "QCStatus"] == "WARNING"))))
+  # print( knitr::kable(QC_Summary["TOTAL FLAGS", ] <-
+    #  c(sum(QCResults[, "QCStatus"] == "PASS"),
+   #     sum(QCResults[, "QCStatus"] == "WARNING"))))
     
     
     ################################################
@@ -455,7 +455,7 @@ if(SegmentQC==T){
     
     #  Plot the geoMetric means for each sample.  
     for(ann in negCols) {
-      plt <- QC_histogram(pData(demoData), ann, col_by, 2, scale_trans = "log10")
+      plt <- QC_histogram(pData(demoData), ann, col_by, QC_params$minNegativeCount, scale_trans = "log10")
       print(plt)
     }
     
@@ -467,14 +467,12 @@ if(SegmentQC==T){
     ###############################
     
     # Segment QC Summary
-    kable(QC_Summary, caption = "QC Summary Table for each Segment")
+    print(kable(QC_Summary, caption = "QC Summary Table for each Segment"))
     
     # Filter only segments that passed 
     # Subset data only on the samples that passed the QC Metrics. 
     demoData <- demoData[, QCResults$QCStatus == "PASS"]
     
-    # Subsetting our dataset has removed samples which did not pass QC
-    dim(demoData)
     
 }   
 
@@ -501,7 +499,7 @@ if(ProbeQC == T){
                         Local = sum(rowSums(ProbeQCResults[, -2:-1]) > 0
                                     & !ProbeQCResults$GlobalGrubbsOutlier))
     
-    kable(qc_df, caption = "Probes flagged or passed as outliers")
+    print(kable(qc_df, caption = "Probes flagged or passed as outliers"))
     
     
     ##################################
@@ -523,8 +521,6 @@ if(ProbeQC == T){
 ## Create gene level count matrix
 ##################################
 
-# Show the number of features before we aggregate counts. 
-length(unique(featureData(demoData)[["TargetName"]]))
 
 # Aggregate counts with the geometric mean. 
 target_demoData <- aggregateCounts(demoData)
@@ -695,7 +691,7 @@ if(LOQ==TRUE){
     target_demoData <- 
       target_demoData[fData(target_demoData)$DetectionRate >= 0.1 |
                         fData(target_demoData)$TargetName %in% neg_probes, ]
-    dim(target_demoData)
+    
 }    
 
 
@@ -823,24 +819,21 @@ save(target_demoData,file = "../Data/Processed/NormalizedData.Rdata")
 
 The exploratory analysis allows us to visualize our data to see high-level patterns without requiring a formal hypothesis. Additionally, the exploratory analysis can serve as a quality control tool. For example, when we do dimensionality reduction, we may notice that most of the variance in the data is coming from the different batches, and we may want to go back to preprocessing and do batch correction before continuing with the downstream analysis. In this exploratory analysis, we are using:
 
-* Uniform Manifold Projection (UMAP) for dimensionality reduction.
+-   Uniform Manifold Projection (UMAP) for dimensionality reduction.
 
-* Heatmaps
+-   Heatmaps
 
 ::: {.callout-note collapse="true"}
 ## Technical Information About UMAP
 
-Uniform manifold approximation and projection (UMAP) is a non-linear dimensionality reduction method rooted in topology. The goal of UMAP is to find a low-dimensional representation
-that best preserves the local structure of the high-dimensional space. The [original method](https://arxiv.org/abs/1802.03426) was published in 2018 and is a staple in scRNA-seq pipelines. The mathematical details for UMAP are complex. However, the authors of UMAP provide a [high-level introduction to UMAP](https://umap-learn.readthedocs.io/en/latest/clustering.html) on their website. [Becht et. al](https://www.nature.com/articles/nbt.4314) show the advantages of UMAP for visualization of scRNA-seq over traditional methods like PCA and t-SNE. 
+Uniform manifold approximation and projection (UMAP) is a non-linear dimensionality reduction method rooted in topology. The goal of UMAP is to find a low-dimensional representation that best preserves the local structure of the high-dimensional space. The [original method](https://arxiv.org/abs/1802.03426) was published in 2018 and is a staple in scRNA-seq pipelines. The mathematical details for UMAP are complex. However, the authors of UMAP provide a [high-level introduction to UMAP](https://umap-learn.readthedocs.io/en/latest/clustering.html) on their website. [Becht et. al](https://www.nature.com/articles/nbt.4314) show the advantages of UMAP for visualization of scRNA-seq over traditional methods like PCA and t-SNE.
 :::
 
 ::: {.callout-warning collapse="true"}
 ## Where to edit code for exploratory analysis.
 
-First, you must "turn off/on" the UMAP and heatmap sections. By default, these are turned on; to turn them off, set UMAP =FALSE and/or Heatmap = FALSE. Then, you will need to provide a path to the data object, which is the output of the QC and normalization step. Since it is possible to have multiple expression matrices after QC and normalization, you need to specify which you want to use. You can find the expression data options using targetdemoData@assays. By default, we are using the batch-corrected data (elt="batch_corrected"). Finally, for the exploratory analysis, you must provide the names of the ROI, AOI, slide name, and batch information. If you are not using batch correction, you can set this to "batch=NULL"
-
+First, you must "turn off/on" the UMAP and heatmap sections. By default, these are turned on; to turn them off, set UMAP =FALSE and/or Heatmap = FALSE. Then, you will need to provide a path to the data object, which is the output of the QC and normalization step. Since it is possible to have multiple expression matrices after QC and normalization, you need to specify which you want to use. You can find the expression data options using targetdemoData\@assays. By default, we are using the batch-corrected data (elt="batch_corrected"). Finally, for the exploratory analysis, you must provide the names of the ROI, AOI, slide name, and batch information. If you are not using batch correction, you can set this to "batch=NULL"
 :::
-
 
 ```{r ExploratoryAnalysis}
 
@@ -964,11 +957,3 @@ if(Heatmap == TRUE){
 
 
 ```
-
-
-
-
-
-
-
-
