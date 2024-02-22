@@ -34,5 +34,8 @@ library(umap)
 library(Rtsne)
 library(pheatmap)  # for pheatmap
 
+# FOr modeling
+library(gee)
+
 source(paste0("R/",dir("R")))
 
