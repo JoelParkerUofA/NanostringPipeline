@@ -81,11 +81,15 @@ model_datPlus = model_datPlus %>%
 geeM <- gee(A2M~regionT, data = dat,id=subject_ID, 
             corstr = "independence")
 
-geeMpack <- geepack::geeglm(A2M~  regionT, family=gaussian, id=subject_ID, data = model_datPlus,
+geeCKPlus <- geeglm(A2M~  regionT, family=gaussian, id=subject_ID, data = model_datPlus,
                             corstr = "exchangeable")
-    
 
-summary(geeM)
+geeCKMinus <- geeglm(A2M~  regionT, family=gaussian, id=subject_ID, data = model_datMinus,
+                              corstr = "exchangeable") 
+
+
+
+summary(geeCKPlus)
 
 summary(geeMpack)
 
@@ -95,12 +99,18 @@ summary(geeMpack)
 trajectories <- function(dat,genes){
   # Create function for modeling each gene
       geeF <- function(X){
-        geeM <- gee(X~regionT, data = dat,id=subject_ID, 
-                    corstr = "independence")
+        
+        geeM <-  geeglm(X~  regionT, family=gaussian, id=subject_ID, data =dat,
+                        corstr = "exchangeable")
+        
+        # Get summary of results
+        sum_res <- summary(geeM)
         
         # Output beta coeficient and pvalue
         c("Trajectory"= geeM$coefficients[2],
-          pvalue= 2*pnorm(abs(summary(geeM)$coefficients[2,5]), lower.tail = F))
+          se = sum_res$coefficients[2,2],
+          "pvalue"= sum_res$coefficients[2,4],
+        "intercept" = sum_res$coefficients[1,1]) 
       }
       
       # Orderdata based on subject ID
@@ -125,20 +135,71 @@ genes <-colnames(assay)
 
 
 # Plus trajectories
-trajectories_plus <- trajectories(model_datPlus,genes = genes[1:10])
+trajectories_plus <- trajectories(model_datPlus,genes = genes[1:1000])
 
-trajectories_plus <- t(trajectories_plus)
 
 # Minus trajectories
-trajectories_minus <-trajectories(model_datMinus,genes = genes[1:10])
+trajectories_minus <-trajectories(model_datMinus,genes = genes[1:1000])
 
 
+
+
+############################################################################
+## Tables to summarise results
+###########################################################################
+
+
+as.data.frame(trajectories_plus) %>%
+  mutate(
+    # How many had a significant trajectory?
+    sig = case_when(pvalue<0.05~"sig",
+                    pvalue >= 0.05 ~ "NotSig"), 
+    
+    # UPward or downward trajectory?
+    traject = case_when(
+      Trajectory.regionT < 0  & sig == "sig" ~ "Downward",
+      Trajectory.regionT > 0  & sig == "sig" ~ "Upward")
+  ) %>%
+  summarise(SigTrajecory = sum(sig=="sig"), sigProp = SigTrajecory /n(),
+            Upward = sum(traject =="Upward", na.rm = T),
+            Downward = sum(traject =="Downward", na.rm = T))
+
+
+
+as.data.frame(trajectories_minus) %>%
+  mutate(
+    # How many had a significant trajectory?
+    sig = case_when(pvalue<0.05~"sig",
+                    pvalue >= 0.05 ~ "NotSig"), 
+    
+    # UPward or downward trajectory?
+    traject = case_when(
+      Trajectory.regionT < 0  & sig == "sig" ~ "Downward",
+      Trajectory.regionT > 0  & sig == "sig" ~ "Upward")
+  ) %>%
+  summarise(SigTrajecory = sum(sig=="sig"), sigProp = SigTrajecory /n(),
+            Upward = sum(traject =="Upward", na.rm = T),
+            Downward = sum(traject =="Downward", na.rm = T))
 
 
 #############################################################################
-ggplot(model_datMinus, aes(x=regionT,y=CST3))+
+# Plot genes of interest
+############################################################################
+
+slopeG = trajectories_minus["ACADS",1]
+interceptG = trajectories_minus["ACADS",4]
+
+seG = trajectories_minus["ACADS",2]
+
+upperSlopeG = slopeG + 1.96 * seG 
+lowerSlopeG = slopeG - 1.96 * seG 
+
+ggplot(model_datMinus, aes(x=regionT,y=ACADS))+
   geom_point() +
-  geom_smooth(method = "lm")
+  geom_abline(slope = slopeG, intercept = interceptG) +
+  geom_abline(slope = upperSlopeG, intercept = interceptG) + # Upper bound
+  geom_abline(slope = lowerSlopeG, intercept = interceptG) # Lower Bound
+  
 
 
 

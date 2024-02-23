@@ -35,7 +35,7 @@ library(Rtsne)
 library(pheatmap)  # for pheatmap
 
 # FOr modeling
-library(gee)
+library(geepack)
 
 source(paste0("R/",dir("R")))
 
