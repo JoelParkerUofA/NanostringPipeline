@@ -54,6 +54,9 @@ library(umap)
 library(Rtsne)
 library(pheatmap)  # for pheatmap
 
+# FOr modeling
+library(geepack)
+
 source(paste0("../R/",dir("../R")))
 
 ```
@@ -957,3 +960,359 @@ if(Heatmap == TRUE){
 
 
 ```
+
+
+
+
+# Trajectory analysis
+
+The goal of this analysis is to find genes that have either a upward or downward trajectory
+from normal to AK Edge to AK center. In this example, we will assign numeric values to 
+normal, AK edge and AK Center regions of interest. 
+
+| ROI | Numeric Value|
+|-----| -------------|
+|Normal| 1 |
+| AK Edge | 2|
+| AK Center |3|
+
+In this example, the analysis will be stratified by AOI (CK + and CK -). We will model
+each gene using generalized estimating equations (GEE) with the subject as the grouping 
+variable. GEE's require us to specifiy a working correlation, for this we will use the exchangeable
+working correlation. We give an example of this modeling strategy for the A2M gene. 
+
+GEE modeling is used for each gene and we will focus on genes that that a significant trajectory 
+from normal to AK Center. We summarize the number of significant genes, proportion of significant genes and the
+number of genes with upward and downward trajectories. 
+
+We then show heatmaps focusing on the genes with upward/downward trajectories for each AOI. The values used in the 
+heatmaps are normalized to a standard normal distribution to allow us to see all the trajectories on the same scale. From these 
+heatmaps we may be able to identify a few genes that we want to take a closer look at. For this we plot the trajectories and the 95% confidence
+interval for the trajectories for specific gene. 
+
+```{r trajectory analysis}
+
+#############################################################################
+## Trajectory analysis. Here we are testing for a trajectory from no disease to 
+## Disease. 
+#############################################################################
+
+
+# What is the path to the processed data?
+data_path = "../Data/Processed/NormalizedData.Rdata"
+
+# Which assay to use? to see options use: target_demoData@assayData$ 
+# here we are using the batch corrected log-transformed
+elt = "batch_corrected"
+
+# Provide the variable names for ROI, AOI, and slide names
+ROI = "region"
+
+AOI = "SegmentLabel"
+
+slideName = "SlideName"
+
+subject_id = "SlideName"
+
+
+
+######################################
+## Load Processed Data
+######################################
+
+# You may need to edit this code to update path
+load(data_path) 
+
+
+
+######################################
+## Sampling distributions
+######################################
+target_demoData@phenoData@data %>%
+               select(as.name(slideName),as.name(AOI),as.name(ROI)) %>%
+               group_by(across(all_of(c(slideName, ROI, AOI))))%>%
+               summarise(N=n()) %>%
+               dcast(formula(paste0(slideName,"~",ROI,"+",AOI))) %>%
+              knitr::kable(col.names = c("SubjectID",
+                                          "AK Center (CK-)",
+                                         "AK Center (CK+)",
+                                         "AK Edge (CK-)",
+                                         "AK Edge (CK+)", 
+                                         "Sun Protected (CK-)",
+                                         "Sun Protected (CK+)"),caption = "Sampling distribution across subjects")
+
+
+
+
+
+##############################################
+## Create model data so gene expression
+## and metadata are together in one dataset
+##############################################
+
+# Get the assay data for the modeling
+# CPM
+assay <- data.frame(t(assayDataElement(target_demoData, elt = elt)))
+
+
+# Here we merge the metadata and the assay data into one dataframe and add the 
+# trajectory to the regions. 
+model_dat <- merge(target_demoData@phenoData@data, assay, by="row.names") %>%
+  mutate(
+    regionT =  case_when(region == "Sun Protected" ~1,
+                         region=="AK Edge"~2,
+                         region == "AK Center"~ 3), 
+    
+    subject_ID = as.factor(!!as.name(subject_id))
+  )
+
+
+# Split the data into CKPlus and CKMinus 
+model_datPlus <- model_dat %>%
+  filter(SegmentLabel=="panckPos")
+
+
+model_datMinus <- model_dat %>%
+  filter(SegmentLabel=="panckNeg")
+
+
+
+# Run trajectory analysis on one gene
+geeCKPlus <- geeglm(A2M~  regionT, family=gaussian, id=subject_ID, data = model_datPlus,
+                            corstr = "exchangeable")
+
+geeCKMinus <- geeglm(A2M~  regionT, family=gaussian, id=subject_ID, data = model_datMinus,
+                              corstr = "exchangeable") 
+
+
+
+summary(geeCKPlus)
+
+summary(geeCKMinus)
+
+
+
+# Create gee function to loop through all genes
+trajectories <- function(dat,genes){
+  # Create function for modeling each gene
+      geeF <- function(X){
+        
+        geeM <-  geeglm(X~  regionT, family=gaussian, id=subject_ID, data =dat,
+                        corstr = "exchangeable")
+        
+        # Get summary of results
+        sum_res <- summary(geeM)
+        
+        # Output beta coeficient and pvalue
+        c("Trajectory"= geeM$coefficients[2],
+          se = sum_res$coefficients[2,2],
+          "pvalue"= sum_res$coefficients[2,4],
+        "intercept" = sum_res$coefficients[1,1]) 
+      }
+      
+      # Orderdata based on subject ID
+      dat = dat %>%
+        arrange(subject_ID)
+      
+      # Run gene trajectoris on the data
+      traj <- apply(dat[,genes], MARGIN = 2, FUN = geeF)
+      
+      # Return the result
+      return(t(traj))    
+        
+}
+
+
+#################################################################
+## Run trajectory analysis
+################################################################
+
+# Identify the genes we want to run it on. 
+genes <-colnames(assay)
+
+
+# Plus trajectories
+trajectories_plus <- trajectories(model_datPlus,genes = genes[1:1000])
+
+
+# Minus trajectories
+trajectories_minus <-trajectories(model_datMinus,genes = genes[1:1000])
+
+
+
+
+############################################################################
+## Tables to summarise results
+###########################################################################
+
+# CK + Trajectories
+as.data.frame(trajectories_plus) %>%
+  mutate(
+    # How many had a significant trajectory?
+    sig = case_when(pvalue<0.05~"sig",
+                    pvalue >= 0.05 ~ "NotSig"), 
+    
+    # UPward or downward trajectory?
+    traject = case_when(
+      Trajectory.regionT < 0  & sig == "sig" ~ "Downward",
+      Trajectory.regionT > 0  & sig == "sig" ~ "Upward")
+  ) %>%
+  summarise(SigTrajecory = sum(sig=="sig"), sigProp = SigTrajecory /n(),
+            Upward = sum(traject =="Upward", na.rm = T),
+            Downward = sum(traject =="Downward", na.rm = T)) %>%
+  knitr::kable(col.names = c("Significant Genes", "Proportion Significant","Upward", "Downward"), 
+               caption = "Significant trajectories (CK+)")
+
+
+# Ck - trajectories
+as.data.frame(trajectories_minus) %>%
+  mutate(
+    # How many had a significant trajectory?
+    sig = case_when(pvalue<0.05~"sig",
+                    pvalue >= 0.05 ~ "NotSig"), 
+    
+    # UPward or downward trajectory?
+    traject = case_when(
+      Trajectory.regionT < 0  & sig == "sig" ~ "Downward",
+      Trajectory.regionT > 0  & sig == "sig" ~ "Upward")
+  ) %>%
+  summarise(SigTrajecory = sum(sig=="sig"), sigProp = SigTrajecory /n(),
+            Upward = sum(traject =="Upward", na.rm = T),
+            Downward = sum(traject =="Downward", na.rm = T)) %>%
+  knitr::kable(col.names = c("Significant Genes", "Proportion Significant","Upward", "Downward"), 
+               caption = "Significant trajectories (CK-)")
+
+
+
+
+###############################################################################
+## Trajectory Heatmaps
+##############################################################################
+
+##### CK plus heatmap ########################################
+
+## Find all significant genes with upward trajectory
+upgenes <- as.data.frame(trajectories_plus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT>0) %>%
+  arrange(-Trajectory.regionT) %>%
+  rownames()
+
+downgenes <-  as.data.frame(trajectories_plus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT< 0) %>%
+  arrange(Trajectory.regionT) %>%
+  rownames()
+
+
+# Create matrix for heatmaps
+UpMat <- model_datPlus %>%
+  arrange(regionT) 
+
+downMat <-  model_datPlus %>%
+  arrange(regionT) 
+
+
+# Heatmaps for upward and downward genes
+pheatmap(t(scale(UpMat[,upgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = UpMat$region, main = "Normalized Log-scaled CPM upward trajectories (CK-Plus)")
+
+
+pheatmap(t(scale(downMat[,downgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = downMat$region, main = "Normalized Log-scaled CPM downward trajectories (CK-Plus)")
+
+
+########## CK-Minus heatmap ################################################
+
+## Find all significant genes with upward trajectory
+upgenes <- as.data.frame(trajectories_minus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT>0) %>%
+  arrange(-Trajectory.regionT) %>%
+  rownames()
+
+downgenes <-  as.data.frame(trajectories_minus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT< 0) %>%
+  arrange(Trajectory.regionT) %>%
+  rownames()
+
+
+# Create matrix for heatmaps
+UpMat <- model_datMinus %>%
+  arrange(regionT) 
+
+downMat <-  model_datMinus %>%
+  arrange(regionT) 
+
+
+# Heatmaps for upward and downward genes
+pheatmap(t(scale(UpMat[,upgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = UpMat$region, main = "Normalized Log-scaled CPM upward trajectories (CK-Minus)")
+
+
+pheatmap(t(scale(downMat[,downgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = downMat$region, main = "Normalized Log-scaled CPM downward trajectories (CK-Minus)")
+
+#############################################################################
+# Plot genes of interest
+############################################################################
+
+gene = "PGK1"
+
+
+############## CK Plus trajectory #############################################
+slopeG = trajectories_plus[gene,1]
+interceptG = trajectories_plus[gene,4]
+
+seG = trajectories_plus[gene,2]
+
+# Define upper and lower bound
+upperSlopeG = slopeG + 1.96 * seG 
+lowerSlopeG = slopeG - 1.96 * seG 
+
+ggplot(model_datPlus, aes(x=regionT,y=!!as.name(gene)))+
+  geom_point() +
+  geom_abline(slope = slopeG, intercept = interceptG) +
+  geom_abline(slope = upperSlopeG, intercept = interceptG, linetype="dashed") + # Upper bound
+  geom_abline(slope = lowerSlopeG, intercept = interceptG, linetype="dashed") +# Lower Bound
+  ggtitle(paste0("Estimated Trajectory of ",gene," in CK-Plus"),"And 95% confidence intervals of trajectory") +
+  theme_bw() +
+  labs(caption = "Values are log-scaled CPM")
+
+
+############### CK Minus Trajectory ###########################################
+
+slopeG = trajectories_minus[gene,1]
+interceptG = trajectories_minus[gene,4]
+
+seG = trajectories_minus[gene,2]
+
+# Define upper and lower bound
+upperSlopeG = slopeG + 1.96 * seG 
+lowerSlopeG = slopeG - 1.96 * seG 
+
+ggplot(model_datMinus, aes(x=regionT,y=!!as.name(gene)))+
+  geom_point() +
+  geom_abline(slope = slopeG, intercept = interceptG) +
+  geom_abline(slope = upperSlopeG, intercept = interceptG, linetype="dashed") + # Upper bound
+  geom_abline(slope = lowerSlopeG, intercept = interceptG, linetype="dashed") +# Lower Bound
+  ggtitle(paste0("Estimated Trajectory of ",gene," in CK-Minus"),"And 95% confidence intervals of trajectory") +
+  theme_bw()+
+  labs(caption = "Values are log-scaled CPM standardization")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

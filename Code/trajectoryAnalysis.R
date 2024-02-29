@@ -74,10 +74,6 @@ model_datMinus <- model_dat %>%
 
 
 # Run trajectory analysis on one gene
-model_datPlus = model_datPlus %>% 
-  arrange(subject_ID)
-
-
 geeM <- gee(A2M~regionT, data = dat,id=subject_ID, 
             corstr = "independence")
 
@@ -182,24 +178,131 @@ as.data.frame(trajectories_minus) %>%
             Downward = sum(traject =="Downward", na.rm = T))
 
 
+
+
+###############################################################################
+## Trajectory Heatmaps
+##############################################################################
+
+##### CK plus heatmap ########################################
+
+## Find all significant genes with upward trajectory
+upgenes <- as.data.frame(trajectories_plus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT>0) %>%
+  arrange(-Trajectory.regionT) %>%
+  rownames()
+
+downgenes <-  as.data.frame(trajectories_plus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT< 0) %>%
+  arrange(Trajectory.regionT) %>%
+  rownames()
+
+
+# Create matrix for heatmaps
+UpMat <- model_datPlus %>%
+  arrange(regionT) 
+
+downMat <-  model_datPlus %>%
+  arrange(regionT) 
+
+
+# Heatmaps for upward and downward genes
+pheatmap(t(scale(UpMat[,upgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = UpMat$region, main = "Normalized Log-scaled CPM upward trajectories (CK-Plus)")
+
+
+pheatmap(t(scale(downMat[,downgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = downMat$region, main = "Normalized Log-scaled CPM downward trajectories (CK-Plus)")
+
+
+########## CK-Minus heatmap ################################################
+
+## Find all significant genes with upward trajectory
+upgenes <- as.data.frame(trajectories_minus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT>0) %>%
+  arrange(-Trajectory.regionT) %>%
+  rownames()
+
+downgenes <-  as.data.frame(trajectories_minus) %>%
+  filter(pvalue < 0.05 & Trajectory.regionT< 0) %>%
+  arrange(Trajectory.regionT) %>%
+  rownames()
+
+
+# Create matrix for heatmaps
+UpMat <- model_datMinus %>%
+  arrange(regionT) 
+
+downMat <-  model_datMinus %>%
+  arrange(regionT) 
+
+
+# Heatmaps for upward and downward genes
+pheatmap(t(scale(UpMat[,upgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = UpMat$region, main = "Normalized Log-scaled CPM upward trajectories (CK-Minus)")
+
+
+pheatmap(t(scale(downMat[,downgenes[1:50]],T,T)), cluster_rows = F, cluster_cols = F,
+         labels_col = downMat$region, main = "Normalized Log-scaled CPM downward trajectories (CK-Minus)")
+
 #############################################################################
 # Plot genes of interest
 ############################################################################
 
-slopeG = trajectories_minus["ACADS",1]
-interceptG = trajectories_minus["ACADS",4]
+gene = "PGK1"
 
-seG = trajectories_minus["ACADS",2]
 
+############## CK Plus trajectory #############################################
+slopeG = trajectories_plus[gene,1]
+interceptG = trajectories_plus[gene,4]
+
+seG = trajectories_plus[gene,2]
+
+# Define upper and lower bound
 upperSlopeG = slopeG + 1.96 * seG 
 lowerSlopeG = slopeG - 1.96 * seG 
 
-ggplot(model_datMinus, aes(x=regionT,y=ACADS))+
+ggplot(model_datPlus, aes(x=regionT,y=!!as.name(gene)))+
   geom_point() +
   geom_abline(slope = slopeG, intercept = interceptG) +
-  geom_abline(slope = upperSlopeG, intercept = interceptG) + # Upper bound
-  geom_abline(slope = lowerSlopeG, intercept = interceptG) # Lower Bound
-  
+  geom_abline(slope = upperSlopeG, intercept = interceptG, linetype="dashed") + # Upper bound
+  geom_abline(slope = lowerSlopeG, intercept = interceptG, linetype="dashed") +# Lower Bound
+  ggtitle(paste0("Estimated Trajectory of ",gene," in CK-Plus"),"And 95% confidence intervals of trajectory") +
+  theme_bw() +
+  labs(caption = "Values are log-scaled CPM")
+
+
+############### CK Minus Trajectory ###########################################
+
+slopeG = trajectories_minus[gene,1]
+interceptG = trajectories_minus[gene,4]
+
+seG = trajectories_minus[gene,2]
+
+# Define upper and lower bound
+upperSlopeG = slopeG + 1.96 * seG 
+lowerSlopeG = slopeG - 1.96 * seG 
+
+ggplot(model_datMinus, aes(x=regionT,y=!!as.name(gene)))+
+  geom_point() +
+  geom_abline(slope = slopeG, intercept = interceptG) +
+  geom_abline(slope = upperSlopeG, intercept = interceptG, linetype="dashed") + # Upper bound
+  geom_abline(slope = lowerSlopeG, intercept = interceptG, linetype="dashed") +# Lower Bound
+  ggtitle(paste0("Estimated Trajectory of ",gene," in CK-Minus"),"And 95% confidence intervals of trajectory") +
+  theme_bw()+
+  labs(caption = "Values are log-scaled CPM standardization")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
